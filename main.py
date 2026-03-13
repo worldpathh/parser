@@ -17,9 +17,6 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from telethon import TelegramClient
-from telethon.tl.types import Channel as TlChannel
-from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.errors import UserAlreadyParticipantError, FloodWaitError, ChannelPrivateError
 
 from clients import create_clients, disconnect_all
 from collectors import collect_users_from_chat
@@ -48,6 +45,8 @@ PARSE_START_DELAY = getattr(_cfg, "PARSE_START_DELAY", 5)
 CHANNEL_MIN = getattr(_cfg, "CHANNEL_MIN", 130)
 CHANNEL_MAX = getattr(_cfg, "CHANNEL_MAX", 1000)
 CHANNEL_FILTER_BATCH_SIZE = 50  # сколько каналов проверяем за один заход на аккаунт
+WARMUP_DELAY_MIN = getattr(_cfg, "WARMUP_DELAY_MIN", 40)
+WARMUP_DELAY_MAX = getattr(_cfg, "WARMUP_DELAY_MAX", 60)
 
 
 def split_into_batches(items: list, size: int) -> List[list]:
@@ -93,45 +92,6 @@ async def _one_account_collect(
     return out
 
 
-async def _join_chats_for_account(
-    client: TelegramClient,
-    chat_ids: List[Union[str, int]],
-    acc_name: str,
-) -> None:
-    """Аккаунт пытается вступить во все указанные чаты/каналы."""
-    for chat_id in chat_ids:
-        try:
-            ent = await client.get_entity(chat_id)
-        except Exception as e:
-            logger.warning("[%s] Не удалось получить чат %s при вступлении: %s", acc_name, chat_id, e)
-            continue
-
-        if not isinstance(ent, TlChannel):
-            logger.info(
-                "[%s] %s не является каналом/чатом (type=%s) — пропускаем join",
-                acc_name,
-                chat_id,
-                type(ent),
-            )
-            continue
-
-        try:
-            logger.info("[%s] Пытаемся вступить в %s", acc_name, chat_id)
-            await client(JoinChannelRequest(ent))
-        except UserAlreadyParticipantError:
-            logger.info("[%s] Уже в чате %s", acc_name, chat_id)
-        except ChannelPrivateError as e:
-            logger.warning("[%s] Канал приватный, нет доступа для join %s: %s", acc_name, chat_id, e)
-        except FloodWaitError as e:
-            wait_for = getattr(e, "seconds", None) or 60
-            logger.warning(
-                "[%s] FLOOD_WAIT %s сек при join %s, ждём и идём дальше", acc_name, wait_for, chat_id
-            )
-            await asyncio.sleep(wait_for + 5)
-        except Exception as e:
-            logger.warning("[%s] Ошибка при join %s: %s", acc_name, chat_id, e)
-
-
 async def run_parser(
     chat_ids: List[Union[str, int]],
     participant_limit: Optional[int] = None,
@@ -157,18 +117,26 @@ async def run_parser(
 
     out_csv = None
     try:
-        # 1. Вступление аккаунтов в чаты по очереди
+        # 1. Разогрев: аккаунты по очереди читают чат(ы), чтобы «увидеть» всех пользователей.
         logger.info(
-            "Фаза 1: аккаунты по очереди вступают в чаты %s (с паузой ~60 сек между аккаунтами)",
-            chat_ids,
+            "Фаза 1: разогрев — аккаунты по очереди читают чаты, чтобы увидеть пользователей "
+            "(с паузой %s–%s сек между аккаунтами)",
+            WARMUP_DELAY_MIN,
+            WARMUP_DELAY_MAX,
         )
         for idx, client in enumerate(clients):
             acc_name = ACCOUNTS[idx] if idx < len(ACCOUNTS) else f"acc{idx}"
             if idx > 0:
-                pause = 60.0
-                logger.info("Ожидание %.1f сек перед join для %s", pause, acc_name)
+                if WARMUP_DELAY_MIN == WARMUP_DELAY_MAX:
+                    pause = float(WARMUP_DELAY_MIN)
+                else:
+                    low = min(WARMUP_DELAY_MIN, WARMUP_DELAY_MAX)
+                    high = max(WARMUP_DELAY_MIN, WARMUP_DELAY_MAX)
+                    pause = random.uniform(low, high)
+                logger.info("Ожидание %.1f сек перед началом разогрева для %s", pause, acc_name)
                 await asyncio.sleep(pause)
-            await _join_chats_for_account(client, chat_ids, acc_name)
+            logger.info("Разогрев: аккаунт %s читает чаты %s", acc_name, chat_ids)
+            await _one_account_collect(client, chat_ids, participant_limit, message_limit)
         logger.info("Фаза 1 завершена.")
 
         # 2. Один аккаунт собирает полный список пользователей и делит на батчи.
