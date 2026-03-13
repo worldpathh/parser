@@ -168,6 +168,16 @@ async def collect_users_from_chat(
     if not entity:
         return []
 
+    # Если это личный аккаунт (User), а не чат/канал — у него нет «участников».
+    # Такое бывает, когда передают ссылку на профиль вместо чата.
+    if isinstance(entity, User):
+        logger.warning(
+            "Объект %s является личным аккаунтом (@%s), у него нет участников — пропускаем",
+            chat_id,
+            getattr(entity, "username", None),
+        )
+        return []
+
     if _participants_hidden(entity):
         logger.info(f"Участники скрыты для {chat_id}, парсим по сообщениям")
         return await collect_from_messages(client, chat_id, message_limit)

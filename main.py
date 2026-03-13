@@ -115,14 +115,19 @@ async def run_parser(
 
     out_csv = None
     try:
-        # 1. Разогрев: все аккаунты параллельно читают чат(ы), чтобы «увидеть» всех пользователей.
-        logger.info("Фаза 1: разогрев — все аккаунты читают чаты, чтобы увидеть пользователей")
-        await asyncio.gather(
-            *[
-                _one_account_collect(clients[idx], chat_ids, participant_limit, message_limit)
-                for idx in range(len(clients))
-            ]
+        # 1. Разогрев: аккаунты по очереди читают чат(ы), чтобы «увидеть» всех пользователей.
+        logger.info(
+            "Фаза 1: разогрев — аккаунты по очереди читают чаты, чтобы увидеть пользователей "
+            "(с паузой 40–60 сек между аккаунтами)"
         )
+        for idx, client in enumerate(clients):
+            acc_name = ACCOUNTS[idx] if idx < len(ACCOUNTS) else f"acc{idx}"
+            if idx > 0:
+                pause = random.uniform(40, 60)
+                logger.info("Ожидание %.1f сек перед началом разогрева для %s", pause, acc_name)
+                await asyncio.sleep(pause)
+            logger.info("Разогрев: аккаунт %s читает чаты %s", acc_name, chat_ids)
+            await _one_account_collect(client, chat_ids, participant_limit, message_limit)
         logger.info("Фаза 1 завершена.")
 
         # 2. Один аккаунт собирает полный список пользователей и делит на батчи.
