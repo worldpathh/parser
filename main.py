@@ -18,6 +18,7 @@ from typing import List, Optional, Union
 
 from telethon import TelegramClient
 from telethon.tl.types import Channel as TlChannel
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.errors import UserAlreadyParticipantError, FloodWaitError, ChannelPrivateError
 
 from clients import create_clients, disconnect_all
@@ -116,11 +117,7 @@ async def _join_chats_for_account(
 
         try:
             logger.info("[%s] Пытаемся вступить в %s", acc_name, chat_id)
-            await client(  # low-level JoinChannelRequest через invoke
-                # type: ignore[attr-defined]
-                # Telethon сам выберет правильный запрос для Channel
-                client._client._sender._tlobjects.functions.channels.JoinChannelRequest(ent)  # pragma: no cover
-            )
+            await client(JoinChannelRequest(ent))
         except UserAlreadyParticipantError:
             logger.info("[%s] Уже в чате %s", acc_name, chat_id)
         except ChannelPrivateError as e:
