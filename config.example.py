@@ -39,3 +39,13 @@ OUTPUT_DIR = "output"
 
 # Токен бота (для bot.py) — создать через @BotFather
 BOT_TOKEN = None
+
+# Чат для прогрева сессий (должны быть добавлены все аккаунты)
+# Можно указать username ("my_warmup_chat") или ID (-1001234567890)
+WARMUP_CHAT = None
+
+# Задержка (сек) после старта перед началом прогрева
+WARMUP_INITIAL_DELAY = 3600
+
+# Интервал (сек) между раундами warmup-сообщений
+WARMUP_INTERVAL = 300
